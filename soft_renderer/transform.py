@@ -21,7 +21,7 @@ class Projection(nn.Module):
         if dist_coeffs is None:
             self.dist_coeffs = torch.cuda.FloatTensor([[0., 0., 0., 0., 0.]]).repeat(P.shape[0], 1)
 
-    def forward(self, vertices):
+    def forward(self, vertices, elevations, azimuths):
         vertices = srf.projection(vertices, self.P, self.dist_coeffs, self.orig_size)
         return vertices
 
@@ -38,7 +38,7 @@ class LookAt(nn.Module):
         if self._eye is None:
             self._eye = [0, 0, -(1. / math.tan(math.radians(self.viewing_angle)) + 1)]
 
-    def forward(self, vertices):
+    def forward(self, vertices, elevations, azimuths):
         vertices = srf.look_at(vertices, self._eye)
         # perspective transformation
         if self.perspective:
@@ -47,11 +47,30 @@ class LookAt(nn.Module):
             vertices = srf.orthogonal(vertices, scale=self.viewing_scale)
         return vertices
 
+# Added By liamnaka
+class LookAtFrom(nn.Module):
+    def __init__(self, distance):
+        super(LookAt, self).__init__()
+        self.distance = distance
+
+    def forward(self, vertices, elevations, azimuths):
+        # convert to rads
+        angles = math.pi / 180. * elevations
+        azimuths = math.pi / 180. * azimuths
+        eyes = torch.cat((
+            self.distance * torch.cos(elevations) * torch.sin(azimuths),
+            self.distance * torch.sin(elevations),
+            -self.distance * torch.cos(elevations) * torch.cos(azimuths)
+            ), 1)
+        vertices = srf.look_at(vertices, eyes)
+
+        return vertices
+
 
 class Look(nn.Module):
     def __init__(self, camera_direction=[0,0,1], perspective=True, viewing_angle=30, viewing_scale=1.0, eye=None):
         super(Look, self).__init__()
-        
+
         self.perspective = perspective
         self.viewing_angle = viewing_angle
         self.viewing_scale = viewing_scale
@@ -73,7 +92,7 @@ class Look(nn.Module):
 
 class Transform(nn.Module):
     def __init__(self, camera_mode='projection', P=None, dist_coeffs=None, orig_size=512,
-                 perspective=True, viewing_angle=30, viewing_scale=1.0, 
+                 perspective=True, viewing_angle=30, viewing_scale=1.0,
                  eye=None, camera_direction=[0,0,1]):
         super(Transform, self).__init__()
 
@@ -84,11 +103,13 @@ class Transform(nn.Module):
             self.transformer = Look(perspective, viewing_angle, viewing_scale, eye, camera_direction)
         elif self.camera_mode == 'look_at':
             self.transformer = LookAt(perspective, viewing_angle, viewing_scale, eye)
+        elif self.camera_mode == 'look_at_from':
+            self.transformer = LookAtFrom(perspective, viewing_scale)
         else:
             raise ValueError('Camera mode has to be one of projection, look or look_at')
 
-    def forward(self, mesh):
-        mesh.vertices = self.transformer(mesh.vertices)
+    def forward(self, mesh, elevations=None, azimuths=None):
+        mesh.vertices = self.transformer(mesh.vertices, elevations, azimuths)
         return mesh
 
     def set_eyes_from_angles(self, distances, elevations, azimuths):
@@ -104,4 +125,3 @@ class Transform(nn.Module):
     @property
     def eyes(self):
         return self.transformer._eyes
-    
