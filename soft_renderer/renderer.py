@@ -92,10 +92,10 @@ class SoftRenderer(nn.Module):
         self.rasterizer.texture_type = mode
 
     # modified to parameterize camera elev/azim
-    def render_mesh(self, mesh, mode=None, elevations=None, azimuths=None):
+    def render_mesh(self, mesh, mode=None, elevations=None, azimuths=None, distance=None):
         self.set_texture_mode(mesh.texture_type)
         mesh = self.lighting(mesh)
-        mesh = self.transform(mesh, elevations, azimuths)
+        mesh = self.transform(mesh, elevations, azimuths, distance)
         return self.rasterizer(mesh, mode)
 
     # Original SoftRas forward pass without camera elevation/azimuth
@@ -103,6 +103,6 @@ class SoftRenderer(nn.Module):
     #     mesh = sr.Mesh(vertices, faces, textures=textures, texture_type=texture_type)
     #     return self.render_mesh(mesh, mode)
 
-    def forward(self, vertices, faces, elevations=None, azimuths=None, textures=None, mode=None, texture_type='surface'):
+    def forward(self, vertices, faces, elevations=None, azimuths=None, distance=None, textures=None, mode=None, texture_type='surface'):
         mesh = sr.Mesh(vertices, faces, textures=textures, texture_type=texture_type)
-        return self.render_mesh(mesh, mode, elevations, azimuths)
+        return self.render_mesh(mesh, mode, elevations, azimuths, distance)
