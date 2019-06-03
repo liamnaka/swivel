@@ -26,21 +26,19 @@ def main():
     args = parser.parse_args()
 
     batch_size = 16
-    
+
     # other settings
     camera_distance = 2
     elevation = torch.zeros((batch_size,1)) + 15
     #elevation[0] = 30
     azimuth = torch.zeros((batch_size,1))
-    
-    
 
     z_dim = 512
     z= torch.FloatTensor(batch_size, z_dim).uniform_(-1, 1).cuda()
     # load from Wavefront .obj file
     generator = MeshGenerator(batch_size, z_dim)
     renderer = DiffRenderer(image_size=64)
-    
+
     cuda = True if torch.cuda.is_available() else False
     if cuda:
         generator.cuda()
@@ -67,7 +65,7 @@ def main():
         writer.append_data((255*image).astype(np.uint8))
     writer.close()
     print(t1-t0)
-    
+
     # save to textured obj
     mesh = sr.Mesh(vertices, faces)
     mesh.save_obj(os.path.join(args.output_dir, 'saved_icosphere.obj'), save_texture=False)
@@ -75,6 +73,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
-
-
