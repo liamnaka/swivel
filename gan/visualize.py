@@ -25,10 +25,10 @@ def main():
         default=os.path.join(data_dir, 'results/output_render'))
     args = parser.parse_args()
 
-    batch_size = 16
+    batch_size = 64
 
     # other settings
-    camera_distance = 2
+    camera_distance = 1.5
     elevation = torch.zeros((batch_size,1)) + 15
     #elevation[0] = 30
     azimuth = torch.zeros((batch_size,1))
@@ -37,7 +37,7 @@ def main():
     z= torch.FloatTensor(batch_size, z_dim).uniform_(-1, 1).cuda()
     # load from Wavefront .obj file
     generator = MeshGenerator(batch_size, z_dim)
-    renderer = DiffRenderer(image_size=64)
+    renderer = DiffRenderer(image_size=128)
 
     cuda = True if torch.cuda.is_available() else False
     if cuda:
@@ -51,7 +51,7 @@ def main():
 
     # draw object from different view
     loop = tqdm.tqdm(list(range(0, 360, 4)))
-    writer = imageio.get_writer(os.path.join(args.output_dir, 'rotation-icosphere.gif'), mode='I')
+    writer = imageio.get_writer(os.path.join(args.output_dir, 'rotation-icosphere-gen.gif'), mode='I')
     for num, azimuth_val in enumerate(loop):
         loop.set_description('Drawing rotation of rendered generator')
         # renderer.transform.set_eyes_from_angles(camera_distance, elevation, azimuth)
@@ -61,7 +61,7 @@ def main():
         images = renderer(vertices, faces, elevations=elevation, azimuths=azimuth, distance=camera_distance)
         if num == 0:
             t1 = time.time()
-        image = images.detach().cpu().numpy()[0].transpose((1, 2, 0))
+        image = images.detach().cpu().numpy()[31].transpose((1, 2, 0))
         writer.append_data((255*image).astype(np.uint8))
     writer.close()
     print(t1-t0)

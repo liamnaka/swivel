@@ -5,23 +5,30 @@ import scipy.misc
 import os
 from PIL import Image
 
-IMAGE_SIZE = 64
-DISTANCE = 2.0
+IMAGE_SIZE = 128
+DISTANCE = 1.5
 
+import torch
 import soft_renderer as sr
+from torchvision.utils import save_image
+
 
 def run():
     #class_ids = [
     #    '02691156', '02828884', '02933112', '02958343', '03001627', '03211117', '03636649', '03691459', '04090263',
     #    '04256520', '04379243', '04401088', '04530566']
+    
+    data_dir = os.path.dirname(os.path.realpath(__file__))
+    
+    
     class_ids = ['02691156']
     # directory_shapenet_id = '../../resource/shapenetcore_ids'
-    directory_rendering = '/shapenet/shapenet_images_%d_%.1f/%s/%s'
-    shapenet_root = '/shapenet/shapenet-v2-airplanes'
-    filename_shapenet_obj = os.path.join(shapenet_root, '%s/%s/model.obj')
+    directory_rendering = os.path.join(data_dir, 'shapenet/shapenet_images_%d_%.1f/%s/%s') 
+    shapenet_root = os.path.join(data_dir, 'shapenet/shapenet-v2-airplanes')
+    filename_shapenet_obj = os.path.join(shapenet_root, '%s/%s/models/model_normalized.obj')
 
     renderer = sr.SoftRenderer(
-        image_size=IMAGE_SIZE, camera_mode="look_at_from", perspective=False
+        image_size=IMAGE_SIZE, camera_mode="look_at_from", perspective=False, near=0,
     )
     renderer.cuda()
 
@@ -30,9 +37,14 @@ def run():
         # ids = open(os.path.join(directory_shapenet_id, '%s_trainids.txt' % class_id)).readlines()
         # ids += open(os.path.join(directory_shapenet_id, '%s_valids.txt' % class_id)).readlines()
         # ids += open(os.path.join(directory_shapenet_id, '%s_testids.txt' % class_id)).readlines()
-        obj_ids = [x[0] for x in os.walk(os.path.join(shapenet_root, class_id)]
+        class_path = os.path.join(shapenet_root, class_id)
+        print(class_path)
+        obj_ids = [name for name in os.listdir(class_path) if os.path.isdir(os.path.join(class_path, name))]
         num_obj = len(obj_ids)
         for i, obj_id in enumerate(obj_ids):
+            #obj_id = os.path.basename(os.path.normpath(obj_id))
+            print(obj_id)
+            
             if i % 100 == 0:
                 print("Progress: ", i, "/", num_obj, " objects rendered.")
             print('rendering: %s %d / %d' % (class_id, i, len(obj_ids)))
@@ -61,17 +73,19 @@ def run():
             elevation *= 0.99999 #Avoid -90 and 90
             image = renderer.render_mesh(
                 mesh, elevations=elevation, azimuths=azimuth, distance=DISTANCE
-            ).detach().cpu().numpy()[0].transpose((1, 2, 0))
+            )#.detach().cpu().numpy()[0].transpose((1, 2, 0))
             filename = os.path.join(
-                directory, 'e%03d_a%03d.png' % (elevation, azimuth)
+                directory_tmp, 'e%03d_a%03d.png' % (elevation, azimuth)
             )
-            save = Image.fromarray((image * 255).astype('uint8'), 'RGB')
-            im.save(filename)
+            save_image(image[0], filename)
+#             im = Image.fromarray((image * 255).astype('uint8'), 'RGB')
+#             im.save(filename)
 
             try:
                 os.rename(directory_tmp, directory)
             except:
                 continue
+                
 
 
 run()

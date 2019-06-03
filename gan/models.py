@@ -41,15 +41,15 @@ class MeshGenerator(nn.Module):
         mask = torch.ge((self.sphere_vs + x) * self.sphere_vs, 0).float()
         new_mesh_vs = (x + self.sphere_vs) * mask
 
-        return new_mesh_vs
+        return new_mesh_vs#self.sphere_vs[None, :, :].expand(z.shape[0], -1, -1)
 
 
 class DiffRenderer(nn.Module):
     r""" Wrapper class for Soft Rasterizer implemenation from SoftRas."""
 
-    def __init__(self, image_size=64, background_color=[0,0,0],
+    def __init__(self, image_size=128, background_color=[0,0,0],
                  texture_type='surface',
-                 camera_mode='look_at_from', orig_size=64,
+                 camera_mode='look_at_from', orig_size=128,
                  light_mode='surface',
                  light_intensity_ambient=0.5, light_color_ambient=[1,1,1],
                  light_intensity_directionals=0.5, light_color_directionals=[1,1,1],
@@ -60,6 +60,7 @@ class DiffRenderer(nn.Module):
                 background_color=background_color,
                 texture_type=texture_type,
                 camera_mode='look_at_from',
+                near=0,
                 orig_size=orig_size,
                 light_mode=light_mode,
                 light_intensity_ambient=light_intensity_ambient,
@@ -83,7 +84,7 @@ class RenderedGenerator(nn.Module):
     r""" Link together mesh generator and Soft Rasterizer to generate images"""
     def __init__(self, batch_size=32, z_dim=512, image_size=64,
                 orig_size=64, background_color=[0,0,0], random_pose=True,
-                default_elevation=30, default_azimuth=30, distance=3.0):
+                default_elevation=30, default_azimuth=30, distance=1.7):
         super(TotalGenerator, self).__init__()
 
         self.mesh_generator = MeshGenerator(batch_size=batch_size, z_dim=z_dim)
@@ -125,7 +126,7 @@ class Discriminator(nn.Module):
         implementations/infogan/infogan.py
     """
 
-    def __init__(self, image_size=64, image_channels=3):
+    def __init__(self, image_size=128, image_channels=4):
         super(Discriminator, self).__init__()
 
         def discriminator_block(in_filters, out_filters, bn=True):
