@@ -13,6 +13,7 @@ import argparse
 
 import soft_renderer as sr
 
+import torch
 
 
 current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -29,36 +30,50 @@ def main():
 
     # other settings
     camera_distance = 2.0
-    elevation = 30
-    azimuth = 0
+    elevation = torch.zeros((1,1))
+    elevation[0] = 30
+    azimuth = torch.zeros((1,1))
 
     # load from Wavefront .obj file
     mesh = sr.Mesh.from_obj(args.filename_input,
-                            load_texture=False, texture_res=5, texture_type='surface')
+                            load_texture=True, texture_res=5, texture_type='surface')
 
     # create renderer with SoftRas
-    renderer = sr.SoftRenderer(camera_mode='look_at', perspective=False)
+    renderer = sr.SoftRenderer(camera_mode='look_at_from')
 
     os.makedirs(args.output_dir, exist_ok=True)
 
-
-
-
-
-
     # draw object from different view
     loop = tqdm.tqdm(list(range(0, 360, 4)))
-    writer = imageio.get_writer(os.path.join(args.output_dir, 'rotation.gif'), mode='I')
-    
-    
-    for num, azimuth in enumerate(loop):
+    writer = imageio.get_writer(os.path.join(args.output_dir, 'rotation-azim.gif'), mode='I')
+    for num, azimuth_val in enumerate(loop):
         # rest mesh to initial state
         mesh.reset_()
-        loop.set_description('Drawing rotation')
+        loop.set_description('Drawing azim rotation')
+        # renderer.transform.set_eyes_from_angles(camera_distance, elevation, azimuth)
+        azimuth[0] = azimuth_val
         if num == 0:
             t0 = time.time()
-        renderer.transform.set_eyes_from_angles(camera_distance, elevation, azimuth)
-        images = renderer.render_mesh(mesh)
+        images = renderer.render_mesh(mesh, elevations=elevation, azimuths=azimuth, distance=camera_distance)
+        if num == 0:
+            t1 = time.time()
+        image = images.detach().cpu().numpy()[0].transpose((1, 2, 0))
+        writer.append_data((255*image).astype(np.uint8))
+    writer.close()
+    print(t1-t0)
+    
+    # draw object from different view
+    loop = tqdm.tqdm(list(range(-90, 90, 6)))
+    writer = imageio.get_writer(os.path.join(args.output_dir, 'rotation-elev.gif'), mode='I')
+    for num, elev_val in enumerate(loop):
+        # rest mesh to initial state
+        mesh.reset_()
+        loop.set_description('Drawing elev rotation')
+        # renderer.transform.set_eyes_from_angles(camera_distance, elevation, azimuth)
+        elevation[0] = elev_val
+        if num == 0:
+            t0 = time.time()
+        images = renderer.render_mesh(mesh, elevations=elevation, azimuths=azimuth, distance=camera_distance)
         if num == 0:
             t1 = time.time()
         image = images.detach().cpu().numpy()[0].transpose((1, 2, 0))
@@ -68,7 +83,8 @@ def main():
 
     # draw object from different sigma and gamma
     loop = tqdm.tqdm(list(np.arange(-4, -2, 0.2)))
-    renderer.transform.set_eyes_from_angles(camera_distance, elevation, 45)
+    # renderer.transform.set_eyes_from_angles(camera_distance, elevation, 45)
+    azimuth[0] = 45
     writer = imageio.get_writer(os.path.join(args.output_dir, 'bluring.gif'), mode='I')
     for num, gamma_pow in enumerate(loop):
         # rest mesh to initial state
@@ -76,7 +92,7 @@ def main():
         renderer.set_gamma(10**gamma_pow)
         renderer.set_sigma(10**(gamma_pow - 1))
         loop.set_description('Drawing blurring')
-        images = renderer.render_mesh(mesh)
+        images = renderer.render_mesh(mesh, elevations=elevation, azimuths=azimuth, distance=camera_distance)
         image = images.detach().cpu().numpy()[0].transpose((1, 2, 0))
         writer.append_data((255*image).astype(np.uint8))
     writer.close()

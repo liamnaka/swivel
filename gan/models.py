@@ -5,7 +5,7 @@ import trimesh as tm
 
 from soft_renderer.renderer import SoftRenderer
 
-class MeshGenerator(nn.module):
+class MeshGenerator(nn.Module):
     r""" Generate Mesh from z by deforming sphere"""
 
     def __init__(self, batch_size=1, z_dim=512):
@@ -14,7 +14,7 @@ class MeshGenerator(nn.module):
         icosphere = tm.creation.icosphere(3, 1) # 642 vertice sphere,  rad=1
         self.num_vertices = len(icosphere.vertices)
         self.sphere_vs = torch.from_numpy(icosphere.vertices).float().cuda()
-        self.sphere_fs = torch.from_numpy(self.icosphere.faces).int().cuda()
+        self.sphere_fs = torch.from_numpy(icosphere.faces).int().cuda()
         # Repeat along batch dim
         self.sphere_fs = self.sphere_fs[None, :, :].expand(batch_size, -1, -1)
 
@@ -23,7 +23,7 @@ class MeshGenerator(nn.module):
         self.fc2 = nn.Linear(1024, 1024)
         self.bn2 = nn.BatchNorm1d(1024)
         self.fc_out = nn.Linear(1024, self.num_vertices * 3)
-        self.relu = nn.LeakyReLU(0.2, inplace=True),
+        self.relu = nn.LeakyReLU(0.2, inplace=True)
 
     def forward(self, z):
         """ Makes a forward pass with the given input through G.
@@ -34,20 +34,20 @@ class MeshGenerator(nn.module):
 
         x = self.bn1(self.relu(self.fc1(z)))
         x = self.bn2(self.relu(self.fc2(x)))
-        x = F.Tanh(self.fc_out(x))
+        x = torch.tanh(self.fc_out(x))
         x = x.view(-1, self.num_vertices, 3)
 
         #constrain to keep points within their quadrant
-        mask = torch.ge((self.sphere_vs + x) * self.sphere_vs, 0)
+        mask = torch.ge((self.sphere_vs + x) * self.sphere_vs, 0).float()
         new_mesh_vs = (x + self.sphere_vs) * mask
 
         return new_mesh_vs
 
 
-class DiffRenderer(nn.module):
+class DiffRenderer(nn.Module):
     r""" Wrapper class for Soft Rasterizer implemenation from SoftRas."""
 
-    def __init__(self, image_size=64, background_color=[0,0,0]
+    def __init__(self, image_size=64, background_color=[0,0,0],
                  texture_type='surface',
                  camera_mode='look_at_from', orig_size=64,
                  light_mode='surface',
@@ -79,9 +79,9 @@ class DiffRenderer(nn.module):
         )
 
 
-class RenderedGenerator(nn.module):
+class RenderedGenerator(nn.Module):
     r""" Link together mesh generator and Soft Rasterizer to generate images"""
-    def __init__(self, distance=3.0, batch_size=32, z_dim=512, image_size=64,
+    def __init__(self, batch_size=32, z_dim=512, image_size=64,
                 orig_size=64, background_color=[0,0,0], random_pose=True,
                 default_elevation=30, default_azimuth=30, distance=3.0):
         super(TotalGenerator, self).__init__()

@@ -56,14 +56,16 @@ class LookAtFrom(nn.Module):
         # convert to rads
         elevations = math.pi / 180. * elevations
         azimuths = math.pi / 180. * azimuths
+        forward_verts = vertices / distance
         eyes = torch.cat((
             distance * torch.cos(elevations) * torch.sin(azimuths),
             distance * torch.sin(elevations),
-            -distance * torch.cos(elevations) * torch.cos(azimuths)
-            ), 1)
-        vertices = srf.look_at(vertices, eyes)
-
-        return vertices
+            distance * -torch.cos(elevations) * torch.cos(azimuths)
+            ), 1).cuda()
+   
+        new_vertices = srf.look_at(forward_verts, eyes)
+        #print((new_vertices - vertices).mean())
+        return new_vertices
 
 
 class Look(nn.Module):
