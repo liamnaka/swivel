@@ -8,7 +8,7 @@ from soft_renderer.renderer import SoftRenderer
 class MeshGenerator(nn.Module):
     r""" Generate Mesh from z by deforming sphere"""
 
-    def __init__(self, batch_size=1, z_dim=512):
+    def __init__(self, batch_size=1, z_dim=512, bias_scale=1.0, centroid_scale=0.1):
         super(MeshGenerator, self).__init__()
 
         icosphere = tm.creation.icosphere(3, 1) # 642 vertice sphere,  rad=1
@@ -22,8 +22,15 @@ class MeshGenerator(nn.Module):
         self.bn1 = nn.BatchNorm1d(1024)
         self.fc2 = nn.Linear(1024, 1024)
         self.bn2 = nn.BatchNorm1d(1024)
-        self.fc_out = nn.Linear(1024, self.num_vertices * 3)
+        self.fc_bias = nn.Linear(1024, self.num_vertices * 3)
+        #self.fc_centroids = nn.Linear(1024, 3)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
+       
+        #self.centroid_scale = centroid_scale
+        self.bias_scale = bias_scale
+        self.obj_scale = 1.0
+        self.elu_alpha = 1.0
+        self.v_relu = nn.LeakyReLU(0.1, inplace=True)
 
     def forward(self, z):
         """ Makes a forward pass with the given input through G.
@@ -34,14 +41,38 @@ class MeshGenerator(nn.Module):
 
         x = self.bn1(self.relu(self.fc1(z)))
         x = self.bn2(self.relu(self.fc2(x)))
-        x = torch.tanh(self.fc_out(x))
-        x = x.view(-1, self.num_vertices, 3)
+        #x = torch.tanh(self.fc_out(x))
+        #x = x.view(-1, self.num_vertices, 3)
+        #centroids = self.fc_centroids(x) * self.centroid_scale
+        bias = self.fc_bias(x) * self.bias_scale
+        bias = bias.view(-1, self.num_vertices, 3)
 
+        base = self.sphere_vs * self.obj_scale
+        #base = self.xp.broadcast_to(base[None, :, :], bias.shape)
+
+        sign = torch.sign(base)
+        base = torch.abs(base)
+        #base = torch.log(base / (1 - base))
+        
+        #centroids = torch.tanh(centroids)
+        #centroids = centroids[:, None, :].expand(*bias.shape)
+        #scale_pos = 1 - centroids
+        #scale_neg = centroids + 1
+        #vertices = F.elu(base + bias, alpha=self.elu_alpha, inplace=True) + self.elu_alpha 
+        vertices = -self.v_relu(-F.elu(base + bias, alpha=self.elu_alpha, inplace=True) + self.elu_alpha) 
+        #print(vertices.shape)
+        vertices = vertices * sign * 0.5 #/ torch.max((torch.max(vertices) + self.eps), self.one)
+        #vertices = F.relu(vertices) * scale_pos - F.relu(-vertices) * scale_neg
+        #vertices += centroids
+        #vertices *= 0.5
+        
+        
         #constrain to keep points within their quadrant
-        mask = torch.ge((self.sphere_vs + x) * self.sphere_vs, 0).float()
-        new_mesh_vs = (x + self.sphere_vs) * mask
-
-        return new_mesh_vs#self.sphere_vs[None, :, :].expand(z.shape[0], -1, -1)
+        #mask = torch.ge((self.sphere_vs + x) * self.sphere_vs, 0).float()
+        #new_mesh_vs = (x + self.sphere_vs) * mask
+    
+        # return self.sphere_vs[None, :, :].expand(z.shape[0], -1, -1)
+        return vertices#x.view(-1, self.num_vertices, 3)#new_mesh_vs
 
 
 class DiffRenderer(nn.Module):
@@ -82,13 +113,13 @@ class DiffRenderer(nn.Module):
 
 class RenderedGenerator(nn.Module):
     r""" Link together mesh generator and Soft Rasterizer to generate images"""
-    def __init__(self, batch_size=32, z_dim=512, image_size=64,
+    def __init__(self, batch_size=32, z_dim=512, image_size=128,
                 orig_size=64, background_color=[0,0,0], random_pose=True,
-                default_elevation=30, default_azimuth=30, distance=1.7):
-        super(TotalGenerator, self).__init__()
+                default_elevation=30, default_azimuth=30, distance=1.5):
+        super(RenderedGenerator, self).__init__()
 
         self.mesh_generator = MeshGenerator(batch_size=batch_size, z_dim=z_dim)
-        self.sphere_fs = mesh_generator.sphere_fs
+        self.sphere_fs = self.mesh_generator.sphere_fs
         self.renderer = DiffRenderer(
             image_size=image_size,
             orig_size=orig_size,
@@ -106,9 +137,9 @@ class RenderedGenerator(nn.Module):
             ).float().cuda()[None, :].expand(batch_size, -1)
 
     def forward(self, z):
-        if random_pose:
-            elev = torch.FloatTensor(self.batch_size, 1).uniform(-90, 90)
-            azim = torch.FloatTensor(self.batch_size, 1).uniform(0, 360)
+        if self.random_pose:
+            elev = torch.FloatTensor(self.batch_size, 1).uniform_(-90, 90)
+            azim = torch.FloatTensor(self.batch_size, 1).uniform_(0, 360)
         else:
             elev = self.default_elevation
             azim = self.default_azimuth
