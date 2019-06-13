@@ -22,15 +22,15 @@ class MeshGenerator(nn.Module):
         self.bn1 = nn.BatchNorm1d(1024)
         self.fc2 = nn.Linear(1024, 1024)
         self.bn2 = nn.BatchNorm1d(1024)
+#         self.fc3 = nn.Linear(1024, 1024)
+#         self.bn3 = nn.BatchNorm1d(1024)
         self.fc_bias = nn.Linear(1024, self.num_vertices * 3)
-        #self.fc_centroids = nn.Linear(1024, 3)
         self.relu = nn.LeakyReLU(0.2, inplace=True)
        
-        #self.centroid_scale = centroid_scale
         self.bias_scale = bias_scale
         self.obj_scale = 1.0
         self.elu_alpha = 1.0
-        self.v_relu = nn.LeakyReLU(0.1, inplace=True)
+        self.v_relu = nn.LeakyReLU(0.001, inplace=True)
 
     def forward(self, z):
         """ Makes a forward pass with the given input through G.
@@ -41,9 +41,7 @@ class MeshGenerator(nn.Module):
 
         x = self.bn1(self.relu(self.fc1(z)))
         x = self.bn2(self.relu(self.fc2(x)))
-        #x = torch.tanh(self.fc_out(x))
-        #x = x.view(-1, self.num_vertices, 3)
-        #centroids = self.fc_centroids(x) * self.centroid_scale
+#         x = self.bn3(self.relu(self.fc3(x)))
         bias = self.fc_bias(x) * self.bias_scale
         bias = bias.view(-1, self.num_vertices, 3)
 
@@ -52,27 +50,116 @@ class MeshGenerator(nn.Module):
 
         sign = torch.sign(base)
         base = torch.abs(base)
-        #base = torch.log(base / (1 - base))
         
-        #centroids = torch.tanh(centroids)
-        #centroids = centroids[:, None, :].expand(*bias.shape)
-        #scale_pos = 1 - centroids
-        #scale_neg = centroids + 1
+        #base = torch.log(base/(1-base))
+        
         #vertices = F.elu(base + bias, alpha=self.elu_alpha, inplace=True) + self.elu_alpha 
-        vertices = -self.v_relu(-F.elu(base + bias, alpha=self.elu_alpha, inplace=True) + self.elu_alpha) 
+        
+        #vertices = (-self.v_relu((-F.elu(base + bias, alpha=self.elu_alpha, inplace=True)) + 1) + 2) / 3
+        
+        #vertices = F.elu(base + bias, alpha=self.elu_alpha, inplace=True) + self.elu_alpha
+        
+        vertices = -self.v_relu(-(self.v_relu(base + bias) - 1.5 * self.obj_scale)) + 1.5 * self.obj_scale
+        #vertices = torch.sigmoid(bias)
+        
+        #vertices = torch.relu((torch.tanh(bias) * self.obj_scale + base))
+        #vertices -= vertices.mean(dim=1, keepdim=True)
+       
+        
         #print(vertices.shape)
-        vertices = vertices * sign * 0.5 #/ torch.max((torch.max(vertices) + self.eps), self.one)
-        #vertices = F.relu(vertices) * scale_pos - F.relu(-vertices) * scale_neg
-        #vertices += centroids
-        #vertices *= 0.5
+        vertices = vertices * sign  #/ torch.max((torch.max(vertices) + self.eps), self.one)
         
-        
-        #constrain to keep points within their quadrant
-        #mask = torch.ge((self.sphere_vs + x) * self.sphere_vs, 0).float()
-        #new_mesh_vs = (x + self.sphere_vs) * mask
+       
     
         # return self.sphere_vs[None, :, :].expand(z.shape[0], -1, -1)
-        return vertices#x.view(-1, self.num_vertices, 3)#new_mesh_vs
+        return vertices
+    
+    
+class ReverseGenerator(nn.Module):
+    r""" Reconstruct z from mesh"""
+
+    def __init__(self, batch_size=1, z_dim=512):
+        super(ReverseGenerator, self).__init__()
+
+        icosphere = tm.creation.icosphere(3, 1) # 642 vertice sphere,  rad=1
+        self.sphere_vs = torch.from_numpy(icosphere.vertices).float().cuda()
+        self.num_vertices = len(icosphere.vertices)
+        self.fc1 = nn.Linear(1024,z_dim)
+        self.bn2 = nn.BatchNorm1d(1024)
+        self.fc2 = nn.Linear(1024, 1024)
+        self.bn3 = nn.BatchNorm1d(1024)
+        self.fc3 = nn.Linear(1024, 1024)
+        self.bn4 = nn.BatchNorm1d(1024)
+        self.fc4 = nn.Linear(self.num_vertices * 3, 1024)
+        self.relu = nn.LeakyReLU(0.2, inplace=True)
+       
+    def forward(self, mesh):
+        """ Makes a forward pass with the given input through G.
+
+        Arguments:
+            z (tensor): input noise (e.g. images)
+        """
+        
+        v_sign = torch.sign(mesh)
+        v_abs = torch.abs(mesh)
+        base_abs = torch.abs(self.sphere_vs)
+        bias_abs = v_abs - base_abs
+        bias = v_sign * bias_abs
+
+        x = self.bn4(self.relu(self.fc4(bias.view(-1, self.num_vertices * 3))))
+        x = self.bn3(self.relu(self.fc3(x)))
+        x = self.bn2(self.relu(self.fc2(x)))
+        reconstructed_z = self.fc1(x)
+ 
+        return reconstructed_z
+
+
+class Encoder(nn.Module):
+    r""" Reconstruct z from Image"""
+
+    def __init__(self, batch_size=1, z_dim=512, image_size=128, image_channels=4):
+        super(Encoder, self).__init__()
+        self.z_dim = z_dim
+        
+        def discriminator_block(in_filters, out_filters, bn=True):
+            """Returns layers of each discriminator block"""
+            block = [
+                nn.Conv2d(in_filters, out_filters, 3, 2, 1),
+                nn.LeakyReLU(0.2, inplace=True),
+                nn.Dropout2d(0.25)
+            ]
+            if bn:
+                block.append(nn.BatchNorm2d(out_filters, 0.8))
+            return block
+        
+        self.conv_blocks = nn.Sequential(
+            *discriminator_block(image_channels, 16, bn=False),
+            *discriminator_block(16, 32),
+            *discriminator_block(32, 64),
+            *discriminator_block(64, 128),
+        )
+
+        # The height and width of downsampled image
+        ds_size = image_size // 2 ** 4
+
+        # Output layers
+        self.latent_layer = nn.Linear(128 * ds_size ** 2, z_dim + 2)
+        
+    def forward(self, img):
+        """ Makes a forward pass with the given input through RG.
+
+        Arguments:
+            z (tensor): input noise (e.g. images)
+        """
+
+        out = self.conv_blocks(img)
+        out = out.view(out.shape[0], -1)
+        zs = self.latent_layer(out)
+        latent = zs[:, :self.z_dim ]
+        elevation = (torch.tanh(zs[:, self.z_dim ]) * 90).view(-1, 1) * 0.999
+        azimuth = (torch.sigmoid(zs[:, self.z_dim +1]) * 360).view(-1, 1)
+
+        return latent, elevation, azimuth
 
 
 class DiffRenderer(nn.Module):
@@ -136,13 +223,18 @@ class RenderedGenerator(nn.Module):
                 [default_azimuth]
             ).float().cuda()[None, :].expand(batch_size, -1)
 
-    def forward(self, z):
+    def forward(self, z, elevations=None, azimuths=None):
         if self.random_pose:
             elev = torch.FloatTensor(self.batch_size, 1).uniform_(-90, 90)
             azim = torch.FloatTensor(self.batch_size, 1).uniform_(0, 360)
         else:
             elev = self.default_elevation
             azim = self.default_azimuth
+            
+#         if elevations is not None:
+#             elev = elevations
+#         if azimuths is not None:
+#             azim = azimuths
 
         vertices = self.mesh_generator(z)
         rendered_image  = self.renderer(
